@@ -1,6 +1,5 @@
 import requests
 
-
 class Bitrix24:
 
     def __init__(self, webhook_create_task, webhook_add_comment):

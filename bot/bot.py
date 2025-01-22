@@ -1,4 +1,3 @@
-# bot.py
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 from bot.handlers.start_handler import StartHandler
@@ -7,6 +6,10 @@ from bot.handlers.comment_handler import CommentHandler
 from bot.database import Database
 from services.bitrix24 import Bitrix24
 from config.config import TOKEN, BITRIX_WEBHOOK_CREATE_TASK, BITRIX_WEBHOOK_ADD_COMMENT
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class MyBot:
     def __init__(self, token):
@@ -15,24 +18,16 @@ class MyBot:
         self.db = Database()
         self.bitrix = Bitrix24(BITRIX_WEBHOOK_CREATE_TASK, BITRIX_WEBHOOK_ADD_COMMENT)
 
-        # Инициализация обработчиков
         start_handler = StartHandler(self.db)
         task_handler = TaskHandler(self.db, self.bitrix)
         comment_handler = CommentHandler(self.db, self.bitrix)
 
-        # Регистрация ConversationHandler для ввода user_id
-        conv_handler_start = ConversationHandler(
-            entry_points=[CommandHandler("start", start_handler.handle_start)],
-            states={
-                start_handler.GET_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, start_handler.handle_message)],
-            },
-            fallbacks=[CommandHandler("cancel", start_handler.cancel)],
-        )
-        self.application.add_handler(conv_handler_start)
-
-        # Регистрация ConversationHandler для создания задачи
+        # ConversationHandler для создания задачи
         conv_handler_task = ConversationHandler(
-            entry_points=[CommandHandler("createtask", task_handler.start_create_task)],
+            entry_points=[
+                CommandHandler("createtask", task_handler.start_create_task),
+                MessageHandler(filters.Text("Создать задачу"), task_handler.start_create_task)
+            ],
             states={
                 task_handler.GET_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, task_handler.get_title)],
                 task_handler.GET_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, task_handler.get_description)],
@@ -42,9 +37,12 @@ class MyBot:
         )
         self.application.add_handler(conv_handler_task)
 
-        # Регистрация ConversationHandler для добавления комментария
+        # ConversationHandler для добавления комментария
         conv_handler_comment = ConversationHandler(
-            entry_points=[CommandHandler("addcomment", comment_handler.start_add_comment)],
+            entry_points=[
+                CommandHandler("addcomment", comment_handler.start_add_comment),
+                MessageHandler(filters.Text("Добавить комментарий"), comment_handler.start_add_comment)
+            ],
             states={
                 comment_handler.GET_TASK_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, comment_handler.get_task_id)],
                 comment_handler.GET_COMMENT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, comment_handler.get_comment_text)],
@@ -53,11 +51,26 @@ class MyBot:
         )
         self.application.add_handler(conv_handler_comment)
 
+        # ConversationHandler для изменения Bitrix24 ID
+        conv_handler_change_bitrix_id = ConversationHandler(
+            entry_points=[
+                MessageHandler(filters.Text("Изменить Bitrix24 ID"), start_handler.handle_change_bitrix_id)
+            ],
+            states={
+                start_handler.CHANGE_BITRIX_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, start_handler.handle_new_bitrix_id)],
+            },
+            fallbacks=[CommandHandler("cancel", start_handler.cancel)],
+        )
+        self.application.add_handler(conv_handler_change_bitrix_id)
+
+        # Обработчик для команды /start
+        self.application.add_handler(CommandHandler("start", start_handler.handle_start))
+
     def run(self):
-        """
-        Запускает бота.
-        """
         try:
+            logger.info("Бот запущен.")
             self.application.run_polling()
+        except Exception as e:
+            logger.error(f"Ошибка при запуске бота: {e}")
         finally:
             self.db.close()

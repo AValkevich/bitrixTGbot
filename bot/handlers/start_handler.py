@@ -1,60 +1,64 @@
-# start_handler.py
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from bot.database import Database
 import logging
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class StartHandler:
-    # Состояние для ожидания ввода user_id
-    GET_USER_ID = 1
+    GET_BITRIX_ID, CHANGE_BITRIX_ID = range(2)
 
     def __init__(self, db: Database):
         self.db = db
 
     async def handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """
-        Обрабатывает команду /start.
-        """
         chat_id = update.message.chat_id
-        logger.info(f"Команда /start вызвана для chat_id: {chat_id}")
 
-        # Проверяем, сохранен ли user_id
-        user_id = self.db.get_user_id(chat_id)
-        if user_id:
+        bitrix_id = self.db.get_bitrix_id(chat_id)
+        if bitrix_id:
             await update.message.reply_text(
-                f"Ваш сохраненный user_id: {user_id}. Используйте следующие команды:\n"
-                "/createtask - Создать новую задачу\n"
-                "/addcomment - Добавить комментарий к задаче"
+                f"Ваш текущий Bitrix24 ID: {bitrix_id}. Используйте меню ниже для выбора действия:",
+                reply_markup=self.get_main_menu_keyboard()
             )
             return ConversationHandler.END
         else:
-            await update.message.reply_text("Привет! Пожалуйста, введите ваш user_id:")
-            return self.GET_USER_ID
+            await update.message.reply_text("Привет! Пожалуйста, введите ваш Bitrix24 ID:")
+            return self.GET_BITRIX_ID
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """
-        Обрабатывает ввод user_id после команды /start.
-        """
+    def get_main_menu_keyboard(self):
+        keyboard = [
+            [KeyboardButton("Создать задачу")],
+            [KeyboardButton("Добавить комментарий")],
+            [KeyboardButton("Изменить Bitrix24 ID")]
+        ]
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
+    async def handle_bitrix_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         chat_id = update.message.chat_id
-        text = update.message.text
-        logger.info(f"Получено сообщение: {text} от chat_id: {chat_id}")
-
-        # Сохраняем user_id в базу данных
-        self.db.save_user_id(chat_id, text)
+        bitrix_id = update.message.text
+        self.db.save_bitrix_id(chat_id, bitrix_id)
         await update.message.reply_text(
-            f"Ваш user_id {text} сохранен. Теперь вы можете использовать следующие команды:\n"
-            "/createtask - Создать новую задачу\n"
-            "/addcomment - Добавить комментарий к задаче"
+            f"Ваш Bitrix24 ID {bitrix_id} сохранен. Используйте меню ниже для выбора действия:",
+            reply_markup=self.get_main_menu_keyboard()
+        )
+        return ConversationHandler.END
+
+    async def handle_change_bitrix_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        chat_id = update.message.chat_id
+        await update.message.reply_text("Введите новый Bitrix24 ID:")
+        return self.CHANGE_BITRIX_ID
+
+    async def handle_new_bitrix_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        chat_id = update.message.chat_id
+        new_bitrix_id = update.message.text
+        self.db.save_bitrix_id(chat_id, new_bitrix_id)
+        await update.message.reply_text(
+            f"Ваш Bitrix24 ID изменен на {new_bitrix_id}. Используйте меню ниже для выбора действия:",
+            reply_markup=self.get_main_menu_keyboard()
         )
         return ConversationHandler.END
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """
-        Отменяет процесс ввода user_id.
-        """
-        await update.message.reply_text("Ввод user_id отменен.")
+        await update.message.reply_text("Ввод данных отменен.")
         return ConversationHandler.END
